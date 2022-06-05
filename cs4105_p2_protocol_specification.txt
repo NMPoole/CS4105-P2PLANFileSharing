@@ -1,0 +1,237 @@
+# CS4105 Coursework P2 - Control Plane:
+#
+# Saleem Bhatti, Oct 2020.
+# 170004680, Nov 2020.
+
+# The control-plane protocol will be implemented on IPv4 multicast.
+#
+# This specification describes only the control-plane protocol. There is no
+# real user-plane protocol.
+#
+# For the user plane -- browsing a remote server -- your application will
+# connect on <server-port> (see below), and send commands as if you were at
+# the console.
+#
+# For implementing a download / upload capability, a response will include an
+# ephemeral port-number at the server for the downloading application to
+# connect to using TCP for the file transfer.
+
+  <message> := ":" <header> ":" <payload> ":"
+
+  <header> := <identifier> ":" <serial-number> ":" <timestamp>
+    # Example of header, with all parts:
+    #
+    # saleem@my.host1.net:528491:20201030-174242.042
+
+  <identifier> :=  uid "@" fqdn
+    # uid as from System.getProperty.("user.name")
+    # fqdn as from InetAddress.getLocalHost().getCanonicalHostName();
+    # Examples:
+    #
+    #    saleem@my.host1.net
+    #    my-id@my.host2.net
+
+  <serial-number> := *DIGIT
+    # A non-zero, unsigned decimal number to help sender identify / demux
+    # responses to messages: this value is used by a per server in responses.
+    # Examples:
+    #
+    #  42
+    #  101
+    #  528491
+    #
+    # This could, for example, be a monotonically increasing number.
+
+  <timestamp> := <year> <month> <day> "-" <hours> <minutes> <seconds> "." <milliseconds>
+  <year> := 4DIGIT
+  <month> := 2DIGIT
+  <day> := 2DIGIT
+  <hour> := 2DIGIT
+  <minutes> := 2DIGIT
+  <seconds> := 2DIGIT
+  <milliseconds> := 3DIGIT
+    # As from SimpleDateFormat(new String("yyyyMMdd-HHmmss.SSS"))
+    # year         has format yyyy, 4-digits.
+    # month        has format MM, 2-digits with leading zero if required.
+    # hour         has format HH, 2-digits with leading zero if required.
+    # minutes      has format mm, 2-digits with leading zero if required.
+    # seconds      has format ss, 2-digits with leading zero if required.
+    # milliseconds has format SSS, 3-digits with leading zeros if required.
+    #
+    # Examples:
+    #
+    #  20201030-174242.042
+    #  20201113-210000.000
+
+  <payload> := <beacon-message> / <search-message> / <download-message> / <upload-message> / <delete-message>
+
+  <beacon-message> := "beacon" ":" <server-port> : <services>
+    # Example of a complete beacon, with header:
+    #
+    #   :saleem@my.host1.net:528491:20201030-174242.042:beacon:10123:remoteBrowse=false,search=false,searchMatch=none,download=false,upload=false,delete=false:
+
+  <server-port> := *DIGIT
+    # a non-zero, unsigned, 16-bit decimal number, on which this server
+    # listens for incoming connections to browse the filespace. Ephemeral
+    # port as allocated by OS when ServerSocket() is created.
+
+  <services> := service-name "=" service-status *["," service-name "=" service-status]
+    # A comma-separated list of offered services.
+    # Example:
+    #
+    #   remoteBrowse=false,search=none,searchMatch=none,download=false,upload=false,delete=false
+
+  <search-message> := <search-request> / <search-response>
+
+  <search-request> := "search-request" ":" <search-type> ":" <search-string>
+
+  <search-type> = "path" / "filename" / "substring"
+    # path        an exact, full path (from root) to be matched.
+    # filename    a filename to be matched, in any part of the filespace.
+    # substring   a filename to be matched, in any part of the filespace.
+    # All matches are case-insensitive.
+
+  <search-string> = file-string
+    # file-string is any group fo characters that can be used for a
+    # a filepath and filename on the School lab linux machines.
+
+    # Examples of a complete search request, with header:
+    #
+    #   :saleem@my.host1.net:1001:20201030-170101.001:search-request:filename:hello_world.txt:
+    #   :saleem@my.host1.net:1002:20201030-170202.002::search-request:substring:lo_wo:
+
+  <response-id> := <identifier> ":" <serial-number>
+    # <identifier> and <serial-number> as defined above.
+    # In any responses, a response-id uses the values of identifier and
+    # serial-number from the request. Examples below.
+
+  <search-response> := <search-result> / <search-error>
+
+  <search-result> := "search-result" : <response-id> : file-string
+    #
+    # file-string is any group of characters that can be used for a full
+    # filepath on the School lab linux machines.
+    # The id and serial-number in the response should match that of the
+    # request. For example, if the server srv@my.host3.net has the file:
+    #
+    #   /dir1/dir2/hello_world.txt
+    #
+    # Then a response to either of the search-request messages above would be:
+    #
+    #   :srv@my.host3.net:1111:20201030-170110.00:search-result:saleem@my.host1.net:1001:/dir1/dir2/hello_world.txt:
+    #   :srv@my.host3.net:1112:20201030-170210.00:search-result:saleem@my.host1.net:1002:/dir1/dir2/hello_world.txt:
+    #
+    # Note that the root, "/", here is the root_dir of the filespace exposed
+    # via the application, and not the local unix root directory!
+    #
+    # Searches of search-type of "filename" or "substring" could generate
+    # multiple results, and these should be sent in separate messages, but
+    # using the same response-id so they can be matched to the same request.
+
+  <search-error> := "search-error" ":" <response-id>
+    # The serial-number in the response should match that of the request.
+    # For example, if the server srv@my.host3.net does not have a match, then
+    # a response to either of the example requests, the response would be:
+    #
+    #   :srv@my.host3.net:1001:20201030-170110.00:search-error:saleem@my.host1.net:1001:
+    #   :srv@my.host3.net:1002:20201030-170210.00:search-error:saleem@my.host1.net:1002:
+
+
+    # PROTOCOL EXTENDED FOR R4, R5, AND R6:
+
+
+    # Definitions shared by the protocol extensions (specifically between downloading and uploading).
+
+  <target-file-path> := file_path_string
+    # A string from '/' (representing the root directory) that specifies a file concerned with the file transfer.
+    # When downloading, this is a file path to the file to download, which must exist.
+    # When uploading, this is a file path to a file location, which may or may not exist.
+
+  <target-identifier> := <identifier>
+    # Defined in the same way as an identifier, but semantically represents the target remote-browser to download from
+    # or upload to.
+
+  <file-transfer-port> := *DIGIT
+    # The port for the client to connect to when downloading from or uploading to a remote file-browser using TCP.
+
+
+    # Download message definitions, which mimic the structure of search messages but adds required fields for
+    # appropriate file transfer.
+
+
+  <download-message> := <download-request> / <download-response>
+    # Download messages consist of either requests to download a file from a remote file-browser, or responses to said
+    # requests.
+
+  <download-request> := "download-request" : <target-identifier> : <target-file-path>
+    # A download request consists of a target identifier, indicating which host has the file to download, and a file
+    # path, which specifies the location of the file to be downloaded.
+
+  <download-response> := <download-result> / <download-error>
+    # A download response consists of either a result, specifying how to proceed with the download, or an error,
+    # which indicates that the user is not able to download the specified remote file.
+
+  <download-result> := "download-result" : <response-id> : <file-transfer-port>
+    # A download result specifies the port number the requester can connect to for the file transfer of the requested
+    # file to take place. The response ID is defined as above and specifies which request this result is in response to.
+
+  <download-error> := "download-error" : <response-id>
+    # A download error message indicates that a remote file download cannot take place. The response ID is defined as
+    # above and specifies which request this error is in response to.
+
+
+    # The definition of upload messages mirrors the structure of the download messages, with obvious fields denoting
+    # the context of uploading as opposed to downloading. The download messages themselves also follow the structure of
+    # the search messages, which keeps everything simple.
+
+
+  <upload-message> := <upload-request> / <upload-response>
+    # Upload messages consist of either requests to upload a file to a remote file-browser, or responses to said
+    # requests.
+
+  <upload-request> := "upload-request" : <target-identifier> : <target-file-path>
+    # An upload request consists of a target identifier, indicating which host to upload to, and a file
+    # path which specifies the location for the remote file-browser to store the uploaded file to.
+
+  <upload-response> := <upload-result> / <upload-error>
+    # An upload response consists of either a result, specifying how to proceed with the upload, or an error,
+    # which indicates that the user is not able to upload a file.
+
+  <upload-result> := "upload-result" : <response-id> : <file-transfer-port>
+    # An upload result specifies the port number the requester can connect to for the file transfer to take place.
+    # The response ID is defined as above and specifies which request this result is in response to.
+
+  <upload-error> := "upload-error" : <response-id>
+    # An upload error message indicates that a remote file upload cannot take place. The response ID is defined as
+    # above and specifies which request this error is in response to.
+
+
+    # Deletion messages follow the structure of download/upload/search messages, maintaining simplicity.
+
+
+  <delete-message> := <delete-request> / <delete-response>
+    # Delete messages consist of either requests to delete a file at a remote file-browser, or responses to said
+    # requests.
+
+  <delete-request> := "delete-request" : <target-identifier> : <target-file-path>
+    # A delete request consists of a target identifier, indicating which host performs the delete, and a file
+    # path, which specifies the location of the file to be deleted at the remote file-browser.
+
+  <delete-response> := <delete-result> / <delete-error>
+    # A delete response consists of either a result, indicating that deletion was a success, or an error,
+    # which indicates that the user is not able to delete the file.
+
+  <delete-result> := "delete-result" : <response-id>
+    # A delete result indicates that the file was deleted successfully. The response ID is defined as above and
+    # specifies which request this result is in response to. The message itself totally conveys the required meaning so
+    # no further message fields are necessary.
+
+  <delete-error> := "delete-error" : <response-id>
+    # A delete error message indicates that deletion was not successful. This can be for many reasons such as the
+    # provided file path not leading to a valid file, or deletion privileges being denied on the file chosen.
+    # The response ID is defined as above and specifies which request this error is in response to.
+    #
+    # Further fields could be included, such as an error message string, to inform on why the error occurred.
+    # However, this was not added as the information is not always desired. Thus, handling the additional information
+    # is not likely to always be implemented.
+
